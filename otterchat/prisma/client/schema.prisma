@@ -1,0 +1,233 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../otterchat/prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Users {
+  id                String     @id @default(uuid())
+  email             String     @unique
+  emailVerification DateTime?
+  image             String?
+  username          String     @unique
+  display_name      String
+  avatar_url        String?
+  status            UserStatus @default(offline)
+  created_at        DateTime   @default(now())
+  updated_at        DateTime   @updatedAt
+
+  // Relations
+  owned_servers       Servers[]            @relation("ServerOwner")
+  server_members      ServerMembers[]
+  messages_reactions  MessageReactions[]
+  channel_permissions ChannelPermissions[]
+  accounts            Account[]
+  sessions            Session[]
+
+  @@map("users")
+}
+
+model Account {
+  id                 String    @id @default(uuid())
+  userId             String
+  providerType       String
+  providerId         String
+  providerAccountId  String
+  refreshToken       String?
+  accessToken        String?
+  accessTokenExpires DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  user               Users     @relation(fields: [userId], references: [id])
+
+  @@unique([providerId, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  expires      DateTime
+  sessionToken String   @unique
+  accessToken  String   @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         Users    @relation(fields: [userId], references: [id])
+}
+
+model VerificationRequest {
+  id         String   @id @default(cuid())
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([identifier, token])
+}
+
+model Servers {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  icon_url    String?
+  banner_url  String?
+  owner_id    String
+  invite_code String   @unique
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  owner      Users           @relation("ServerOwner", fields: [owner_id], references: [id], onDelete: Cascade)
+  members    ServerMembers[]
+  channels   Channels[]
+  categories Categories[]
+  roles      Roles[]
+
+  @@map("servers")
+}
+
+model ServerMembers {
+  id        String   @id @default(uuid())
+  server_id String
+  user_id   String
+  nickname  String?
+  joined_at DateTime @default(now())
+  roles     Json? // JSON Array of role IDs
+
+  // Relations
+  server Servers @relation(fields: [server_id], references: [id], onDelete: Cascade)
+  user   Users   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([server_id, user_id])
+  @@map("server_members")
+}
+
+model Categories {
+  id         String   @id @default(uuid())
+  server_id  String
+  name       String
+  position   Int
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relations
+  server   Servers    @relation(fields: [server_id], references: [id], onDelete: Cascade)
+  channels Channels[]
+
+  @@map("categories")
+}
+
+model Channels {
+  id                  String               @id @default(uuid())
+  server_id           String
+  name                String
+  type                ChannelType          @default(text)
+  topic               String?
+  position            Int
+  category_id         String?
+  is_nsfw             Boolean              @default(false)
+  created_at          DateTime             @default(now())
+  channel_permissions ChannelPermissions[]
+
+  // Relations
+  server   Servers     @relation(fields: [server_id], references: [id], onDelete: Cascade)
+  category Categories? @relation(fields: [category_id], references: [id], onDelete: SetNull)
+
+  @@map("channels")
+}
+
+model Messages {
+  id           String      @id @default(uuid())
+  channel_id   String
+  author_id    String
+  content      String
+  message_type Messagetype @default(default)
+  reply_to_id  String?
+  reply_to     Messages?   @relation(name: "MessageReplies", fields: [reply_to_id], references: [id], onDelete: Cascade)
+  replies      Messages[]  @relation(name: "MessageReplies")
+  created_at   DateTime    @default(now())
+  updated_at   DateTime    @updatedAt
+
+  attatachments    MessageAttachments[]
+  message_rections MessageReactions[]
+
+  @@map("messages")
+}
+
+model MessageAttachments {
+  id          String    @id @default(uuid())
+  messages_id String // This is the foreign key field
+  message     Messages? @relation(fields: [messages_id], references: [id], onDelete: Cascade) // Corrected: use messages_id
+  filename    String
+  file_url    String
+  file_size   Int
+
+  @@map("message_attachments")
+}
+
+model MessageReactions {
+  id         String    @id @default(uuid())
+  message_id String?
+  user_id    String
+  message    Messages? @relation(fields: [message_id], references: [id], onDelete: Cascade)
+  users      Users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  emoji      String
+  created_at DateTime  @default(now())
+
+  @@map("message_reactons")
+}
+
+model Roles {
+  id             String   @id @default(uuid())
+  server_id      String
+  server         Servers  @relation(fields: [server_id], references: [id], onDelete: Cascade)
+  name           String
+  color          String?
+  permissions    BigInt
+  position       Int
+  is_mentionable Boolean  @default(false)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  channel_permissions ChannelPermissions[]
+
+  @@map("roles")
+}
+
+model ChannelPermissions {
+  id                String   @id @default(uuid())
+  channel_id        String
+  role_id           String
+  user_id           String
+  allow_permissions BigInt
+  deny_permissions  BigInt
+  channel           Channels @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  role              Roles    @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  user              Users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("channel_permissions")
+}
+
+enum UserStatus {
+  online
+  idle
+  dnd
+  offline
+}
+
+enum ChannelType {
+  text
+  voice
+  announcement
+  forum
+}
+
+enum Messagetype {
+  default
+  reply
+  system
+}
